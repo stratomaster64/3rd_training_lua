@@ -37,7 +37,7 @@ end
     - [R/W] _sequence   : Sequence object that we are currently playing on the given player
     - [W]   _input      : Input object that should be applied this frame
 ]]
-function process_input_sequence(_player_obj, _sequence, _input)
+function process_input_sequence(_player_obj, _sequence, _input, _disable_replay_flip)
 
   if _sequence.current_frame > #_sequence.sequence then
     return
@@ -83,9 +83,9 @@ function process_input_sequence(_player_obj, _sequence, _input)
     for i = 1, #_current_frame_input do
       local _input_name = _player_obj.prefix.." "
       if _current_frame_input[i] == "forward" then
-        if _player_obj.flip_input then _input_name = _input_name.."Right" else _input_name = _input_name.."Left" end
+        if _player_obj.flip_input and _disable_replay_flip == false then _input_name = _input_name.."Right" else _input_name = _input_name.."Left" end
       elseif _current_frame_input[i] == "back" then
-        if _player_obj.flip_input then _input_name = _input_name.."Left" else _input_name = _input_name.."Right" end
+        if _player_obj.flip_input and _disable_replay_flip == false then _input_name = _input_name.."Left" else _input_name = _input_name.."Right" end
       elseif _current_frame_input[i] == "up" then
         _input_name = _input_name.."Up"
       elseif _current_frame_input[i] == "down" then

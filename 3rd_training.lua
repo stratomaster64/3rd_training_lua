@@ -15,6 +15,50 @@ print("- In normal mode, press \"Coin\" to start/stop replay")
 print("- Lua Hotkey 1 (alt+1) to return to character select screen")
 print("")
 
+-- ■2021.11.22
+--   - 反撃タイミング: 空ブロ後のカウンタータイミングを変更
+--   - ヒットストップフレーム、回復フレームを表示
+--   - キャラの中心をプラスで表示
+-- ■2021.11.24
+--   - 体勢が違う攻撃はガードしないモード追加
+--     Dummy -> Blocking Style -> block_A
+-- ■2021.11.25
+--   - リプレイ時に左右自動反転を行わない(disable_replay_flip)追加
+--     Misc -> Enable replay flip
+-- ■2021.11.27
+--   - Replay,RecordingボタンをP2.startに割当てた
+-- ■2021.11.27
+--   - crouching時に強制的にニュートラルにしてQSを取れるように修正
+-- ■2022.01.31
+--   - 春麗の百裂タイマー表示モード追加
+--     Misc -> Display Special meter
+-- ■2022.05.01
+--   - ライフ表示をダメージの値に変更
+--   - スタン回復メーター追加
+--   - 削減値・空中コンボタイマー表示
+--   - 投げ距離表示
+-- ■2022.05.04
+--   - ライフ設定値メニュー追加
+--   - コンボダメージ表示
+-- ■2022.05.22
+--   - v0.10 を取り込んだ
+--     トータルダメージ表示機能が追加されたので、Ashtanga版の同機能は削除
+--   - まことの小K移動唐草の距離を表示
+--   - いぶきの中K,近大K移動投げの距離を表示
+-- ■2022.06.01
+--   - Misc -> Display Cancel Timing 追加
+--   - Misc -> Cancel Mode1,2 追加
+-- ■2022.08.24
+--   - add enable_distance_replay, replay_start_distance
+--   - 指定距離まで近づくとリプレイを開始するモードを追加
+--   - Misc -> Disctance Replay Mode で有効/無効選択
+--   - Misc -> Replay start distance で距離を設定
+-- ■2022.08.29
+--   - add replay_start_height
+--   - 指定高さまで下降するとリプレイを開始するモードを追加
+--   - Misc -> Height Replay Mode  で有効/無効選択
+--   - Misc -> Replay start height で距離を設定
+
 -- Kudos to indirect contributors:
 -- *esn3s* for his work on 3s frame data : http://baston.esn3s.com/
 -- *dammit* for his work on 3s hitbox display script : https://dammit.typepad.com/blog/2011/10/improved-3rd-strike-hitboxes.html
@@ -59,6 +103,9 @@ require("src/frame_advantage")
 require("src/character_select")
 
 recording_slot_count = 8
+
+distance_char = 0 -- add ashtanga
+height_char   = 0 -- add ashtanga
 
 -- debug options
 developer_mode = false -- Unlock frame data recording options. Touch at your own risk since you may use those options to fuck up some already recorded frame data
@@ -365,6 +412,7 @@ blocking_style =
   "block",
   "parry",
   "red parry",
+  "block_A", -- add ashtanga
 }
 
 blocking_mode =
@@ -428,6 +476,38 @@ special_training_mode = {
   "parry",
   "charge",
   "Hyakuretsu Kyaku (Chun Li)"
+}
+
+-- add ashtanga
+cancel_mode1 = {
+  " 0: none",
+  " 1: jump",
+  " 2:      dash",
+  " 3: jump+dash",
+  " 4:           normals",
+  " 5: jump     +normals",
+  " 6:      dash+normals",
+  " 7: jump+dash+normals",
+  " 8:                   chains",
+  " 9: jump             +chains",
+  "10:      dash        +chains",
+  "11: jump+dash        +chains",
+  "12:          +normals+chains",
+  "13: jump     +normals+chains",
+  "14:      dash+normals+chains",
+  "15: jump+dash+normals+chains"
+}
+cancel_mode2 = {
+  " 0: none",
+  " 1: special",
+  " 2:         super",
+  " 3: special+super",
+}
+
+height_replay_mode = {
+  "disable",
+  "rise",
+  "fall",
 }
 
 function make_recording_slot()
@@ -1116,7 +1196,8 @@ function update_blocking(_input, _player, _dummy, _mode, _style, _red_parry_hit_
       _animation_frame_delta = _dummy.blocking.expected_attack_animation_hit_frame - _player_relevant_animation_frame
     end
 
-    if _blocking_style == 1 then
+    -- ガード (lit. "guard"; JP term for blocking)
+    if _blocking_style == 1 or _blocking_style == 4 then
       local _blocking_delta_threshold = 2
       if _dummy.blocking.is_precise_timing then
         _blocking_delta_threshold = 1
@@ -1135,12 +1216,16 @@ function update_blocking(_input, _player, _dummy, _mode, _style, _red_parry_hit_
           _input[_dummy.prefix..' Left'] = true
         end
 
-        if _hit_type == 2 then
-          _input[_dummy.prefix..' Down'] = true
-        elseif _hit_type == 3 then
-          _input[_dummy.prefix..' Down'] = false
+        -- 体勢と違う属性もガードする ("guards against attributes different from posture")
+        if _blocking_style == 1 then
+          if _hit_type == 2 then
+            _input[_dummy.prefix..' Down'] = true
+          elseif _hit_type == 3 then
+            _input[_dummy.prefix..' Down'] = false
+          end
         end
       end
+    -- ブロッキング ("blocking"; JP term for parrying)
     elseif _blocking_style == 2 then
       _input[_dummy.prefix..' Right'] = false
       _input[_dummy.prefix..' Left'] = false
@@ -1173,9 +1258,15 @@ end
 
 function update_fast_wake_up(_input, _player, _dummy, _mode)
   if is_in_match and _mode ~= 1 and current_recording_state ~= 4 then
-    local _should_tap_down = _dummy.previous_can_fast_wakeup == 0 and _dummy.can_fast_wakeup == 1
+    -- local _should_tap_down = _dummy.previous_can_fast_wakeup == 0 and _dummy.can_fast_wakeup == 1
+    -- ■QS時に強制的にニュートラルを入れる ("Force neutral during QS [quickstand]")
+    local _should_tap_neutral = _dummy.previous_can_fast_wakeup == 0 and _dummy.can_fast_wakeup == 1
+    local _should_tap_down = _dummy.previous_can_fast_wakeup2 == 0 and _dummy.previous_can_fast_wakeup == 1
 
-    if _should_tap_down then
+    -- add ashtanga
+    if _should_tap_neutral then
+      _input[dummy.prefix..' Down'] = false
+    elseif _should_tap_down then
       local _r = math.random()
       if _mode ~= 3 or _r > 0.5 then
         _input[dummy.prefix..' Down'] = true
@@ -1225,7 +1316,13 @@ function update_counter_attack(_input, _attacker, _defender, _stick, _button)
       print(frame_number.." - init ca (parry)")
     end
     log(_defender.prefix, "counter_attack", "init ca (parry)")
-    _defender.counter.attack_frame = frame_number + 15
+    -- _defender.counter.attack_frame = frame_number + 15
+    -- ■反撃タイミング ("Counterattack timing")
+    if _defender.pos_y > 0 then 
+      _defender.counter.attack_frame = frame_number + 19
+    else
+      _defender.counter.attack_frame = frame_number + 15
+    end
     _defender.counter.sequence, _defender.counter.offset = make_input_sequence(stick_gesture[_stick], button_gesture[_button])
     _defender.counter.ref_time = -1
     handle_recording()
@@ -1486,8 +1583,10 @@ training_settings = {
   counter_attack_button = 1,
   fast_wakeup_mode = 1,
   infinite_time = true,
-  life_mode = 1,
-  meter_mode = 1,
+  life_mode = 3,
+  p1_life_reset_value = 160, -- add ashtanga
+  p2_life_reset_value = 160, -- add ashtanga
+  meter_mode = 3,
   p1_meter = 0,
   p2_meter = 0,
   infinite_sa_time = false,
@@ -1524,6 +1623,22 @@ training_settings = {
   special_training_parry_air_on = true,
   special_training_parry_antiair_on = true,
   special_training_charge_overcharge_on = false,
+
+    -- add ashtanga
+    disable_replay_flip = false,
+    enable_special_meter = false,
+    enable_stun_meter = false,
+    enable_aircombo_meter = false,
+    enable_throw_distance_p1 = false,
+    enable_throw_distance_p2 = false,
+    enable_cancel_timing = false,
+    cancel_timing_follow_character = false,
+    cancel_mode1 = 1,
+    cancel_mode2 = 1,
+    enable_distance_replay = false,
+    height_replay_mode = 1,
+    replay_start_distance = 100,
+    replay_start_height = 70,
 }
 
 debug_settings = {
@@ -1536,12 +1651,14 @@ debug_settings = {
 }
 
 life_refill_delay_item = integer_menu_item("Life refill delay", training_settings, "life_refill_delay", 1, 100, false, 20)
-life_refill_delay_item.is_disabled = function()
+p1_life_refill_delay_item = gauge_menu_item("  P1 Life reset value", training_settings, "p1_life_reset_value", 1, 0x00FF00FF, 160)
+p2_life_refill_delay_item = gauge_menu_item("  P2 Life reset value", training_settings, "p2_life_reset_value", 1, 0x00FF00FF, 160)
+p1_life_refill_delay_item.is_disabled = function()
   return training_settings.life_mode ~= 2
 end
-
-p1_stun_reset_value_gauge_item = gauge_menu_item("P1 Stun reset value", training_settings, "p1_stun_reset_value", 64, 0xFF0000FF)
-p2_stun_reset_value_gauge_item = gauge_menu_item("P2 Stun reset value", training_settings, "p2_stun_reset_value", 64, 0xFF0000FF)
+p2_life_refill_delay_item.is_disabled = p1_life_refill_delay_item.is_disabled
+p1_stun_reset_value_gauge_item = gauge_menu_item("  P1 Stun reset value", training_settings, "p1_stun_reset_value", 64, 0xFF0000FF)
+p2_stun_reset_value_gauge_item = gauge_menu_item("  P2 Stun reset value", training_settings, "p2_stun_reset_value", 64, 0xFF0000FF)
 p1_stun_reset_value_gauge_item.unit = 1
 p2_stun_reset_value_gauge_item.unit = 1
 stun_reset_delay_item = integer_menu_item("Stun reset delay", training_settings, "stun_reset_delay", 1, 100, false, 20)
@@ -1550,6 +1667,16 @@ p1_stun_reset_value_gauge_item.is_disabled = function()
 end
 p2_stun_reset_value_gauge_item.is_disabled = p1_stun_reset_value_gauge_item.is_disabled
 stun_reset_delay_item.is_disabled = p1_stun_reset_value_gauge_item.is_disabled
+
+-- ■add ashtanga
+distance_replay_item = integer_menu_item("  Replay start distance", training_settings, "replay_start_distance", 1, 200, false, 100)
+distance_replay_item.is_disabled = function()
+  return training_settings.enable_distance_replay ~= true
+end
+height_replay_item = integer_menu_item("  Replay start height", training_settings, "replay_start_height", 1, 100, false, 70)
+height_replay_item.is_disabled = function()
+  return training_settings.height_replay_mode == 1
+end
 
 p1_meter_gauge_item = gauge_menu_item("P1 Meter", training_settings, "p1_meter", 2, 0x0000FFFF)
 p2_meter_gauge_item = gauge_menu_item("P2 Meter", training_settings, "p2_meter", 2, 0x0000FFFF)
@@ -1606,7 +1733,7 @@ mid_distance_height_item.is_disabled = function()
 end
 
 main_menu = make_multitab_menu(
-  23, 15, 360, 195, -- screen size 383,223
+  23, 5, 360, 205, -- screen size 383,223
   {
     {
       name = "Dummy",
@@ -1660,7 +1787,8 @@ main_menu = make_multitab_menu(
         change_characters_item,
         checkbox_menu_item("Infinite Time", training_settings, "infinite_time"),
         list_menu_item("Life Refill Mode", training_settings, "life_mode", life_mode),
-        life_refill_delay_item,
+        p1_life_refill_delay_item,
+        p2_life_refill_delay_item,
         list_menu_item("Stun Mode", training_settings, "stun_mode", stun_mode),
         p1_stun_reset_value_gauge_item,
         p2_stun_reset_value_gauge_item,
@@ -1684,6 +1812,29 @@ main_menu = make_multitab_menu(
         parry_air_on_item,
         parry_antiair_on_item,
         charge_overcharge_on_item
+      }
+    },
+    {
+      name = "Misc",
+      entries = {
+        checkbox_menu_item("Disable Replay flip",            training_settings, "disable_replay_flip"),
+        checkbox_menu_item("Display Special Meter",          training_settings, "enable_special_meter"),
+        checkbox_menu_item("Display Stun Meter",             training_settings, "enable_stun_meter"),
+        checkbox_menu_item("Display AirCombo Meter",         training_settings, "enable_aircombo_meter"),
+        checkbox_menu_item("Display Throw distance P1",      training_settings, "enable_throw_distance_p1"),
+        checkbox_menu_item("Display Throw distance P2",      training_settings, "enable_throw_distance_p2"),
+
+        checkbox_menu_item("Display Cancel Timing",          training_settings, "enable_cancel_timing"),
+        checkbox_menu_item("Cancel Timing Follow character", training_settings, "cancel_timing_follow_character"),
+
+        list_menu_item("Cancel Mode1", training_settings, "cancel_mode1", cancel_mode1),
+        list_menu_item("Cancel Mode2", training_settings, "cancel_mode2", cancel_mode2),
+
+        checkbox_menu_item("Distance Replay Mode",           training_settings, "enable_distance_replay"),
+        distance_replay_item,
+
+        list_menu_item("Height Replay Mode", training_settings, "height_replay_mode", height_replay_mode),
+        height_replay_item,
       }
     },
   },
@@ -1873,7 +2024,7 @@ function update_recording(_input)
   if is_in_match and not is_menu_open then
 
     -- manage input
-    local _input_pressed = (not swap_characters and player.input.pressed.coin) or (swap_characters and dummy.input.pressed.coin)
+    local _input_pressed = (not swap_characters and player.input.pressed.coin) or (swap_characters and dummy.input.pressed.coin) or (P2.input.pressed.start)
     if _input_pressed then
       if frame_number < (last_coin_input_frame + _input_buffer_length) then
         last_coin_input_frame = -1
@@ -1965,7 +2116,11 @@ function write_player_vars(_player_obj)
     if training_settings.life_mode == 2 then
       if _player_obj.is_idle and _player_obj.idle_time > training_settings.life_refill_delay then
         local _refill_rate = 6
-        _life = math.min(_life + _refill_rate, 160)
+        if _player_obj.id == 1 then
+          _life = math.min(_life + _refill_rate, training_settings.p1_life_reset_value)
+        else
+          _life = math.min(_life + _refill_rate, training_settings.p1_life_reset_value)
+        end
       end
     elseif training_settings.life_mode == 3 then
       _life = 160
@@ -2166,6 +2321,7 @@ function before_frame()
     freeze = is_menu_open,
     infinite_time = training_settings.infinite_time,
     music_volume = training_settings.music_volume,
+    stage = training_settings.stage,
   }
   write_game_vars(_write_game_vars_settings)
 
@@ -2207,6 +2363,33 @@ function before_frame()
   -- counter attack
   update_counter_attack(_input, player, dummy, training_settings.counter_attack_stick, training_settings.counter_attack_button)
 
+  -- 距離でPlaying開始 ("start playing at distance") add ashtanga
+  if training_settings.enable_distance_replay == true and is_in_match then
+    distance_char_old = distance_char
+    distance_char     = math.abs(player_objects[1].pos_x - player_objects[2].pos_x)
+    if distance_char_old > training_settings.replay_start_distance and distance_char <= training_settings.replay_start_distance then
+      -- print("Distance Mode")
+      -- print(distance_char_old, distance_char)
+--      set_recording_state(_input, 1)
+      set_recording_state(_input, 4)
+    end
+  else
+    distance_char_old = 0
+    distance_char     = 0
+  end
+  if training_settings.height_replay_mode ~= 1 and is_in_match then
+    height_char_old = height_char
+    height_char     = player.pos_y
+    if(  (training_settings.height_replay_mode == 3 and height_char_old > training_settings.replay_start_height and height_char <= training_settings.replay_start_height)
+      or (training_settings.height_replay_mode == 2 and height_char_old < training_settings.replay_start_height and height_char >= training_settings.replay_start_height)
+    ) then
+      set_recording_state(_input, 4)
+    end
+  else
+    height_char_old = 0
+    height_char     = 0
+  end
+
   -- recording
   update_recording(_input)
 
@@ -2215,7 +2398,7 @@ function before_frame()
       local _player_object = player_objects[_i]
       local _sequence = _player_object.pending_input_sequence
       if _sequence ~= nil then
-        process_input_sequence(_player_object, _sequence, _input)
+        process_input_sequence(_player_object, _sequence, _input, training_settings.disable_replay_flip)
         if _sequence.current_frame > #_sequence.sequence then
           clear_input_sequence(_player_object)
         end
@@ -2301,6 +2484,12 @@ function before_frame()
     end
   end
 
+  -- add ashtanga
+  if((training_settings.cancel_mode1 ~= 1) or (training_settings.cancel_mode2 ~= 1)) then
+    memory.writebyte(0x02068E8D, (training_settings.cancel_mode1 - 1) + (training_settings.cancel_mode2 - 1) * 0x20) -- 1P 色々キャンセル ("Various cancellations")
+    memory.writebyte(0x02069325, (training_settings.cancel_mode1 - 1) + (training_settings.cancel_mode2 - 1) * 0x20) -- 2P 色々キャンセル
+  end  
+
   log_update()
 end
 
@@ -2324,6 +2513,29 @@ function on_gui()
     ]]
 
     display_draw_printed_geometry()
+
+    -- コンボダメージ量計算 ("Combo damage calculation")
+    local _damage_freeze_cnt_p1_zero_edge = false
+    local _damage_freeze_cnt_p2_zero_edge = false
+    if((damage_freeze_cnt_p1 ~= 0) and (memory.readbyte(0x02068DF3) == 0)) then
+      _damage_freeze_cnt_p1_zero_edge = true
+    end
+    if((damage_freeze_cnt_p2 ~= 0) and (memory.readbyte(0x0206928B) == 0)) then
+      _damage_freeze_cnt_p2_zero_edge = true
+    end
+    -- コンボが0 または のけぞりカウンタが0となったときに初期化 ("initialized when combo is 0 or stagger counter is 0")
+    if((_damage_freeze_cnt_p1_zero_edge == true) or (memory.readbyte(0x0206961D) == 0)) then
+      player_objects[1].combo_start_life = player_objects[1].life
+    elseif(memory.readbyte(0x0206961D) >= 1) then
+      player_objects[1].combo_damage = player_objects[1].combo_start_life - player_objects[1].life
+    end
+    if((_damage_freeze_cnt_p2_zero_edge == true) or (memory.readbyte(0x020696C5) == 0)) then
+      player_objects[2].combo_start_life = player_objects[2].life
+    elseif(memory.readbyte(0x020696C5) >= 1) then
+      player_objects[2].combo_damage = player_objects[2].combo_start_life - player_objects[2].life
+    end
+    damage_freeze_cnt_p1 = memory.readbyte(0x02068DF3)
+    damage_freeze_cnt_p2 = memory.readbyte(0x0206928B)
 
     if training_settings.display_gauges then
       display_draw_life(player_objects[1])
@@ -2730,6 +2942,447 @@ function on_gui()
     menu_stack_clear()
   end
 
+    -- ■追加表示用の関数 ("Additional display functions")
+    function disp_special(_player, _x, _y)
+      local _y_offset = 0
+  
+      if _player.id == 1 then
+        hyaku_time   = 0x020259f3
+        hyaku_addr0  = 0x02025A03
+        hyaku_addr1  = 0x02025A05
+        hyaku_addr2  = 0x02025A07
+        hayate_charge= 0x02068D27
+        hayate       = 0x02068D2D
+        denjin2      = 0x02068D27
+        denjin       = 0x02068D2D
+        super_art    = 0x0201138B
+      else
+        hyaku_time   = 0x020259f3 + 0x620 -- [ashtanga] Chun_hyaku
+        hyaku_addr0  = 0x02025A03 + 0x620 -- [ashtanga] Chun_hyaku
+        hyaku_addr1  = 0x02025A05 + 0x620 -- [ashtanga] Chun_hyaku
+        hyaku_addr2  = 0x02025A07 + 0x620 -- [ashtanga] Chun_hyaku
+        hayate_charge= 0x02068D27 + 0x498
+        hayate       = 0x02068D2D + 0x498
+        denjin2      = 0x02068D27 + 0x498
+        denjin       = 0x02068D2D + 0x498
+        super_art    = 0x0201138C
+      end
+  
+      local _gauge_background_color = 0xD6E7EF77
+      local _gauge_cooldown_fill_color = 0xFF9939FF
+  
+      -- 春麗 (Chun Li)
+      if _player.char_str == "chunli" then
+        for i = 1, memory.readbyte(hyaku_addr0), 1 do
+          gui.image(_x + (i-1)*10, _y +  0 + _y_offset, img_LK_button_small)
+        end
+        for i = 1, memory.readbyte(hyaku_addr1), 1 do
+          gui.image(_x + (i-1)*10, _y +  6 + _y_offset, img_MK_button_small)
+        end
+        for i = 1, memory.readbyte(hyaku_addr2), 1 do
+          gui.image(_x + (i-1)*10, _y + 12 + _y_offset, img_HK_button_small)
+        end
+        --draw_gauge(_x,       _y + _y_offset + 20, 98, 3, memory.readbyte(hyaku_time)/98, _gauge_cooldown_fill_color, _gauge_background_color, nil, true)
+        draw_gauge(_x,       _y + _y_offset + 20, 98, 3, memory.readbyte(hyaku_time)/98, _gauge_cooldown_fill_color, _gauge_background_color, nil, true)
+        gui.text  (_x + 103, _y + _y_offset + 20, string.format("%d", memory.readbyte(hyaku_time),  0x00C080FF, 0x000000FF))
+      -- リュウ＆電刃
+      elseif((_player.char_str == "ryu") and (memory.readbyte(super_art) == 2))then
+        --  3  8..0
+        --  9 24..1
+        -- 14 48..1
+        -- 19 80..0
+        local _tame;
+        local _total = 9+24+48+80;
+        local _phase = memory.readbyte(denjin)
+        local yb = _y + _y_offset + 20
+        if(_phase == 3) then
+          _tame = 8          - memory.readbyte(denjin2)
+          _gauge_cooldown_fill_color = 0x6495edFF
+        elseif(_phase == 9) then
+          _tame = 9+24       - memory.readbyte(denjin2)
+          _gauge_cooldown_fill_color = 0x00ff7fFF
+        elseif(_phase == 14) then
+          _tame = 9+24+48    - memory.readbyte(denjin2)
+          _gauge_cooldown_fill_color = 0xffd700FF
+        else
+          _tame = 9+24+48+80 - memory.readbyte(denjin2)
+          _gauge_cooldown_fill_color = 0xFF9939FF
+        end
+        draw_gauge(_x,          yb, _total, 3, _tame/_total, _gauge_cooldown_fill_color, _gauge_background_color, nil, false)
+        gui.box   (_x - 2 +  8, yb -  3, _x + 8,  yb + 3, 0xFFFFFFFF, 0x00000000)
+        gui.box   (_x - 2 + 33, yb -  3, _x + 33, yb + 3, 0xFFFFFFFF, 0x00000000)
+        gui.box   (_x - 2 + 81, yb -  3, _x + 81, yb + 3, 0xFFFFFFFF, 0x00000000)
+        gui.text  (_x,          yb +  7, string.format("%d", _tame,  0x00C080FF, 0x000000FF))
+      -- まこと (Makoto)
+      elseif(_player.char_str == "makoto") then
+        local _tame
+        local _level
+        local yb = _y + _y_offset + 20
+  
+        _level = memory.readbyte(hayate)
+        if _level == 7 then
+          _tame = 20 - memory.readbyte(hayate_charge)
+          _gauge_cooldown_fill_color = 0x4040A0FF
+        elseif _level == 12 then
+          _tame = 40 - memory.readbyte(hayate_charge)
+          _gauge_cooldown_fill_color = 0x00ff7fFF
+        elseif _level == 17 then
+          _tame = 60 - memory.readbyte(hayate_charge)
+          _gauge_cooldown_fill_color = 0xffd700FF
+        elseif _level == 22 then
+          _tame = 120 - memory.readbyte(hayate_charge)
+          _gauge_cooldown_fill_color = 0xFF9939FF
+        else
+          _tame = 0
+        end
+        draw_gauge        (_x, yb, 120, 3, _tame/120, _gauge_cooldown_fill_color, _gauge_background_color, nil, false)
+        gui.text          (_x, yb + 7, string.format("%d", _tame, 0x00C080FF, 0x000000FF))
+        draw_vertical_line(_x + 20 - 1, yb-2, yb+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x + 40 - 1, yb-2, yb+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x + 60 - 1, yb-2, yb+2, 0xFFFFFF80, 1)
+  
+      elseif(_player.char_str == "hugo") then
+      end
+    end
+  
+    if is_in_match == true then
+      ------------------------
+      -- 座標 ("Coordinates")
+      ------------------------
+      -- ステージ全体での座標を取得 ("Get the coordinates of the entire stage")
+      local P1_pos_x = memory.readword(0x02068CD0)
+      local P1_pos_y = memory.readword(0x02068CD4)
+      local P2_pos_x = memory.readword(0x02069168)
+      local P2_pos_y = memory.readword(0x0206916C)
+  
+      -- 画面上の相対的な位置の座標を取得 ("Get the relative position coordinates on the screen")
+      local P1_px, P1_py = game_to_screen_space(P1_pos_x, P1_pos_y)
+      local P2_px, P2_py = game_to_screen_space(P2_pos_x, P2_pos_y)
+  
+      -- ■スペシャルゲージの表示 ("Special Gauge Display")
+      -- CPS3 384×224
+      if  training_settings.enable_special_meter == true then
+        if(P1.char_str == "ryu") then
+          disp_special(P1,  26, 58)
+        else
+          disp_special(P1,  66, 58)
+        end
+  
+        if(P2.char_str == "ryu") then
+          disp_special(P2, 200, 58)
+        else
+          disp_special(P2, 221, 58)
+        end
+      end
+  
+      -- スタン回復メーター表示 ("Stun recovery meter display")
+      if training_settings.enable_stun_meter == true then
+        p1_stun_state = memory.readbyte(P1.stun_status)
+        p2_stun_state = memory.readbyte(P2.stun_status)
+  
+        local _gauge_background_color    = 0xD6E7EF77
+        local _gauge_cooldown_fill_color = 0xFF9939FF
+        local _x = 30
+  
+        gui.text  (_x + 7,            36, string.format("%3d", memory.readbyte(P1.stun_timer_addr)), 0xFFFFFFFF, 0x000000FF)
+        gui.text  (_x + 7 + 152,      36, string.format("%3d", memory.readbyte(P2.stun_timer_addr)), 0xFFFFFFFF, 0x000000FF)
+        draw_gauge(_x +           20, 37, 270/2, 3, memory.readbyte(P1.stun_timer_addr)/270, _gauge_cooldown_fill_color, _gauge_background_color, nil, true)
+        draw_gauge(_x +     152 + 20, 37, 270/2, 3, memory.readbyte(P2.stun_timer_addr)/270, _gauge_cooldown_fill_color, _gauge_background_color, nil, true)
+  
+        if p1_stun_state_cur == 1 and p1_stun_state == 0 then
+          p1_stun_start_time = memory.readbyte(P1.stun_timer_addr)
+        end
+        if p2_stun_state_cur == 1 and p2_stun_state == 0 then
+          p2_stun_start_time = memory.readbyte(P2.stun_timer_addr)
+        end
+        if p1_stun_start_time ~= nil then
+          draw_vertical_line(_x +       20 + (270 - p1_stun_start_time)/2, 40-2, 40+2, 0xFFFFFF80, 1)
+          gui.text          (_x +       20 + (270 - p1_stun_start_time)/2, 40+5, string.format("%3d", p1_stun_start_time), 0xFFFFFFFF, 0x000000FF)
+        end
+        if p2_stun_start_time ~= nil then
+          draw_vertical_line(_x + 152 + 20 + (270 - p2_stun_start_time)/2, 40-2, 40+2, 0xFFFFFF80, 1)
+          gui.text          (_x + 152 + 20 + (270 - p2_stun_start_time)/2, 40+5, string.format("%3d", p2_stun_start_time), 0xFFFFFFFF, 0x000000FF)
+        end
+  
+        p1_stun_state_cur = p1_stun_state
+        p2_stun_state_cur = p2_stun_state
+      end
+  
+      -- 削減値表示 ("Reduction value display"; scaling?)
+      if training_settings.enable_aircombo_meter == true then
+        local _x = 133
+        local _y = 44
+        local _gauge_background_color    = 0xD6E7EF77
+        local _gauge_cooldown_fill_color = 0xFF9939FF
+        _air_time = memory.readbyte(0x020694C7)
+        _air_comb = memory.readbyte(0x020694C9)
+        if( _air_time == 0xFF) then
+          _air_time = 0
+        end
+        gui.text  (_x - 25, _y-1, string.format("%3d:%2d", _air_time, _air_comb), 0xFFFFFFFF, 0x000000FF)
+        draw_gauge(_x,      _y,   121, 3, (_air_time+1)/(121*2), _gauge_cooldown_fill_color, _gauge_background_color, nil, true)
+        draw_vertical_line(_x,           _y-2, _y+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x+(121-101), _y-2, _y+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x+(121- 81), _y-2, _y+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x+(121- 61), _y-2, _y+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x+(121- 41), _y-2, _y+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x+(121- 21), _y-2, _y+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x+(121- 11), _y-2, _y+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x+(121-  5), _y-2, _y+2, 0xFFFFFF80, 1)
+        draw_vertical_line(_x+(121-  2), _y-2, _y+2, 0xFFFFFF80, 1)
+      end
+  
+      -- 移動投げ(空キャンセル投げ) ["Moving Throw (Air Cancel Throw)"]
+      function disp_throw_distance(_p1, _p2)
+        local _throw = {}
+        if    (_p1.char_str == "gill") then
+          _throw[ #_throw + 1 ]  = 28      -- gill:通常投げ (neutral)
+        elseif(_p1.char_str == "alex") then
+          _throw[ #_throw + 1 ]  = 30      -- alex:通常投げ (neutral)
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 30 + 16 -- alex:6大P
+        elseif(_p1.char_str == "ryu") then
+          _throw[ #_throw + 1 ]  = 24      -- ryu:通常投げ (neutral)
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 24 + 16 -- ryu:6中P
+        elseif(_p1.char_str == "yun") then
+          _throw[ #_throw + 1 ]  = 18      -- yun:通常投げ (neutral)
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 31      -- yun:前方転身 ("forward roll")
+        elseif(_p1.char_str == "dudley") then
+          _throw[ #_throw + 1 ]  = 20      -- dudley:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 20 + 10 -- dudley:6中P
+          _throw[ #_throw + 1 ]  = 20 + 11 -- dudley:6大K
+          _throw[ #_throw + 1 ]  = 20 + 12 -- dudley:6小P
+        elseif(_p1.char_str == "necro") then
+          _throw[ #_throw + 1 ]  = 26      -- necro:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 26 + 8  -- necro:4大K
+        elseif(_p1.char_str == "hugo") then
+          _throw[ #_throw + 1 ]  = 32      -- hugo:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 59      -- hugo:小ムーン ("Small Moon"; LK Meat Squasher)
+          _throw[ #_throw + 1 ]  = 53      -- hugo:中ムーン ("Medium Moon"; MK Meat Squasher)
+          _throw[ #_throw + 1 ]  = 47      -- hugo:大ムーン ("Great Moon"; HK Meat Squasher)
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 70      -- hugo:ギガス ("Gigas"; SA1)
+        elseif(_p1.char_str == "ibuki") then
+          _throw[ #_throw + 1 ]  = 16      -- ibuki:通常投げ (neutral)
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 16 + 4  -- ibuki:中K・近大K ("middle K near big K")
+        elseif(_p1.char_str == "elena") then
+          _throw[ #_throw + 1 ]  = 22      -- elena:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 22 + 28 -- elena:6中K
+        elseif(_p1.char_str == "oro") then
+          _throw[ #_throw + 1 ]  = 25      -- oro:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 25 + 12 -- oro:6中P
+          _throw[ #_throw + 1 ]  = 25 + 14 -- oro:大K
+          _throw[ #_throw + 1 ]  = 25 + 28 -- oro:遠中K
+        elseif(_p1.char_str == "yang") then
+          _throw[ #_throw + 1 ]  = 18      -- yang:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 18 + 13 -- yang:大K
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 31      -- yang:前方転身
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 31 + 13 -- yang:大K + 前方転身
+        elseif(_p1.char_str == "ken") then
+          _throw[ #_throw + 1 ]  = 24      -- ken:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 24 + 10 -- ken:4中K
+          _throw[ #_throw + 1 ]  = 24 + 13 -- ken:屈中K、屈大K
+        elseif(_p1.char_str == "sean") then
+          _throw[ #_throw + 1 ]  = 20      -- sean:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 20 + 14 -- sean:6大P
+        elseif(_p1.char_str == "urien") then
+          _throw[ #_throw + 1 ]  = 26      -- urien:通常投げ
+        elseif(_p1.char_str == "gouki") then
+          _throw[ #_throw + 1 ]  = 24      -- gouki:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 24 + 20 -- gouki:6中P
+        elseif(_p1.char_str == "chunli") then
+          _throw[ #_throw + 1 ]  = 26      -- chunli:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 26 + 16 -- chunli:近大K
+          _throw[ #_throw + 1 ]  = 26 + 32 -- chunli:遠中K
+        elseif(_p1.char_str == "makoto") then
+          _throw[ #_throw + 1 ]  = 20      -- makoto:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 20 + 13 -- makoto:屈大K
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 39      -- makoto:小唐草
+          _throw[ #_throw + 1 ]  = 43      -- makoto:中唐草
+          _throw[ #_throw + 1 ]  = 47      -- makoto:大唐草
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 39 + 13 -- makoto:屈大K + 小唐草
+          _throw[ #_throw + 1 ]  = 43 + 13 -- makoto:屈大K + 中唐草
+          _throw[ #_throw + 1 ]  = 47 + 13 -- makoto:屈大K + 大唐草
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 39 + 41 -- makoto:立ち小K + 小唐草
+          _throw[ #_throw + 1 ]  = 43 + 41 -- makoto:立ち小K + 中唐草
+          _throw[ #_throw + 1 ]  = 47 + 41 -- makoto:立ち小K + 大唐草
+        elseif(_p1.char_str == "q") then
+          _throw[ #_throw + 1 ]  = 24      -- q:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 24 + 14 -- q:屈中P
+          _throw[ #_throw + 1 ]  = 24 + 25 -- q:中P
+          _throw[ #_throw + 1 ]  = 24 + 36 -- q:4中P
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 85      -- q:小捕獲
+          _throw[ #_throw + 1 ]  = 87      -- q:中捕獲
+          _throw[ #_throw + 1 ]  = 89      -- q:大捕獲
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 103     -- q:屈中P + 大捕獲
+          _throw[ #_throw + 1 ]  = 114     -- q:中P   + 大捕獲
+          _throw[ #_throw + 1 ]  = 125     -- q:4中P  + 大捕獲
+        elseif(_p1.char_str == "twelve") then
+          _throw[ #_throw + 1 ]  = 22      -- twelve:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 22 + 20 -- twelve:遠中P
+        elseif(_p1.char_str == "remy") then
+          _throw[ #_throw + 1 ]  = 24      -- remy:通常投げ
+          _throw[ #_throw + 1 ]  = 0
+          _throw[ #_throw + 1 ]  = 24 + 14 -- remy:近中P
+          _throw[ #_throw + 1 ]  = 24 + 16 -- remy:6中K
+          _throw[ #_throw + 1 ]  = 24 + 21 -- remy:遠中P
+          _throw[ #_throw + 1 ]  = 24 + 27 -- remy:遠大K
+        end
+  
+        local _distance = math.abs(P1_px - P2_px)
+        local _p1_push_width      = 0 -- P1 push
+        local _p2_throwable_width = 0 -- P2 throwable
+        for __, _box in ipairs(_p1.boxes) do
+          if _filter == nil or _filter[_box.type] == true then
+            if (_box.type == "push") then
+              _p1_push_width = _box.width / 2
+            end
+          end
+        end
+        for __, _box in ipairs(_p2.boxes) do
+          if _filter == nil or _filter[_box.type] == true then
+            if (_box.type == "throwable") then
+              _p2_throwable_width = _box.width / 2
+            end
+          end
+        end  
+        if _p1.pos_y == 0 then
+          for i = 1, #_throw do
+            if(_throw[ i ] ~= 0) then
+  
+              local _px
+              local _py
+              local _hy
+              -- プレイヤーの位置
+              if( _p1.id == 1 ) then
+                _px = P1_px
+                _py = P1_py
+                _hy = 35
+                _color = 0xFFFF00CC
+              else
+                _px = P2_px
+                _py = P2_py
+                _hy = 17
+                _color = 0xFF8800CC -- 0x00FFFFCC
+              end
+  
+              if((_distance - _p1_push_width - _p2_throwable_width) < _throw[ i ]) then
+                _color = 0xFF0000CC
+              end
+  
+              -- 右向き ("right facing")
+              if(_p1.flip_x == 1) then
+                draw_horizontal_line(_px + _p1_push_width + 1,           _px + _p1_push_width + _throw[ i ], _py+i-_hy, _color, 1)
+              -- 左向き ("left facing")
+              else
+                draw_horizontal_line(_px - _p1_push_width - _throw[ i ], _px - _p1_push_width - 1,           _py+i-_hy, _color, 1)
+              end
+            end
+          end
+        end
+      end
+  
+      if training_settings.enable_throw_distance_p1 == true then
+        disp_throw_distance(P1, P2)
+      end
+      if training_settings.enable_throw_distance_p2 == true then
+        disp_throw_distance(P2, P1)
+      end
+  
+  
+      function disp_cancel_timing(_pp)
+        local color_crazy   = 0x88888888
+        local color_special = 0x88888888
+        local color_super   = 0x88888888
+        local color_jump    = 0x88888888
+        local color_dash    = 0x88888888
+        local color_normals = 0x88888888
+        local color_chains  = 0x88888888
+        local _cancel_adr   = 0x02068E8D
+        local _xx = 80
+        local _yy = 85
+  
+        if( _pp.id == 1 ) then
+          _cancel_adr   = 0x02068E8D
+          _xx = 80
+        else
+          _cancel_adr   = 0x02068E8D+0x498
+          _xx = 280
+        end
+  
+        if(SHIFT(memory.readbyte(_cancel_adr), 0) % 2 == 1) then
+          color_jump    = 0xFF0000FF
+        end
+        if(SHIFT(memory.readbyte(_cancel_adr), 1) % 2 == 1) then
+          color_dash    = 0xFF0000FF
+        end
+        if(SHIFT(memory.readbyte(_cancel_adr), 2) % 2 == 1) then
+          color_normals = 0xFF0000FF
+        end
+        if(SHIFT(memory.readbyte(_cancel_adr), 3) % 2 == 1) then
+          color_chains  = 0xFF0000FF
+        end
+        if(SHIFT(memory.readbyte(_cancel_adr), 4) % 2 == 1) then
+          color_crazy   = 0xFF0000FF
+        end
+        if(SHIFT(memory.readbyte(_cancel_adr), 5) % 2 == 1) then
+          color_special = 0xFF0000FF
+        end
+        if(SHIFT(memory.readbyte(_cancel_adr), 6) % 2 == 1) then
+          color_super   = 0xFF0000FF
+        end
+  
+        if training_settings.cancel_timing_follow_character then
+          local _gauge_x_scale = 4
+          local _px = _pp.pos_x - screen_x + emu.screenwidth()/2
+          local _py = emu.screenheight() - (_pp.pos_y - screen_y) - ground_offset
+          local _half_width = 23 * _gauge_x_scale * 0.5
+          _xx = _px - _half_width
+          _xx = math.max(_xx, 4)
+          _xx = math.min(_xx, emu.screenwidth() - (_half_width * 2.0 + 14))
+          _xx = _px
+          _yy = _py - 100
+        end
+  
+        gui.text(_xx, _yy+7*0, "Crazy",      color_crazy  , 0x000000CC)
+        gui.text(_xx, _yy+7*1, "Special",    color_special, 0x000000CC)
+        gui.text(_xx, _yy+7*2, "Super",      color_super  , 0x000000CC)
+        gui.text(_xx, _yy+7*3, "High-Jump",  color_jump   , 0x000000CC)
+        gui.text(_xx, _yy+7*4, "Dash",       color_dash   , 0x000000CC)
+        gui.text(_xx, _yy+7*5, "Normals",    color_normals, 0x000000CC)
+        gui.text(_xx, _yy+7*6, "Chains",     color_chains , 0x000000CC)
+      end
+  
+      if training_settings.enable_cancel_timing == true then
+        disp_cancel_timing(P1)
+        disp_cancel_timing(P2)
+      end
+    end -- is_in_match
+  
+  -- メニュー表示 (Menu display)
   if is_menu_open then
     local _horizontal_autofire_rate = 4
     local _vertical_autofire_rate = 4

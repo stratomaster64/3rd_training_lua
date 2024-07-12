@@ -44,7 +44,7 @@ function gauge_menu_item(_name, _object, _property_name, _unit, _fill_color, _ga
       gui.line(_line_x, _box_top, _line_x, _box_bottom, text_default_border_color)
     end
 
-    gui.text(_box_right + 2, _y, _suffix, _c, text_default_border_color)
+    gui.text(_box_right + 2, _y, string.format(" %d/%d%s", _content_width, self.gauge_max, _suffix), _c, text_default_border_color) -- add ashtanga
   end
 
   function _o:left()
@@ -755,7 +755,7 @@ function multitab_menu_draw(_menu)
 
   if not _menu.is_main_menu_selected then
     if _menu.content[_menu.main_menu_selected_index].entries[_menu.sub_menu_selected_index].legend then
-      gui.text(_menu_x, _menu.bottom - 12, _menu.content[_menu.main_menu_selected_index].entries[_menu.sub_menu_selected_index]:legend(), text_disabled_color, text_default_border_color)
+      gui.text(_menu_x + 220, _menu.bottom - 12, _menu.content[_menu.main_menu_selected_index].entries[_menu.sub_menu_selected_index]:legend(), text_disabled_color, text_default_border_color)
     end
   end
 
