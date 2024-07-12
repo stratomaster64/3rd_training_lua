@@ -1363,6 +1363,12 @@ function update_counter_attack(_input, _attacker, _defender, _stick, _button)
     _defender.counter.air_recovery = true
     handle_recording()
     log(_defender.prefix, "counter_attack", "init ca (air)")
+  elseif training_settings.counter_attack_round_start and has_match_just_started then
+    clear_input_sequence(_defender)
+    _defender.counter.attack_frame = -1
+    _defender.counter.sequence, _defender.counter.offset = make_input_sequence(stick_gesture[_stick], button_gesture[_button])
+    _defender.counter.ref_time = -1
+    handle_recording()
   end
 
   if not _defender.counter.sequence then
@@ -1587,6 +1593,7 @@ training_settings = {
   red_parry_hit_count = 1,
   counter_attack_stick = 1,
   counter_attack_button = 1,
+  counter_attack_round_start = false,
   fast_wakeup_mode = 1,
   infinite_time = true,
   life_mode = 3,
@@ -1655,6 +1662,11 @@ debug_settings = {
   debug_character = "",
   debug_move = "",
 }
+
+counter_attack_roundstart_item = checkbox_menu_item("  Counter-Attack on round start", training_settings, "counter_attack_round_start")
+counter_attack_roundstart_item.is_disabled = function ()
+  return training_settings.counter_attack_button == 1 and training_settings.counter_attack_stick == 1
+end
 
 life_refill_delay_item = integer_menu_item("Life refill delay", training_settings, "life_refill_delay", 1, 100, false, 20)
 p1_life_refill_delay_item = gauge_menu_item("  P1 Life reset value", training_settings, "p1_life_reset_value", 1, 0x00FF00FF, 160)
@@ -1751,6 +1763,7 @@ main_menu = make_multitab_menu(
         list_menu_item("Tech Throws", training_settings, "tech_throws_mode", tech_throws_mode),
         list_menu_item("Counter-Attack Move", training_settings, "counter_attack_stick", stick_gesture),
         list_menu_item("Counter-Attack Action", training_settings, "counter_attack_button", button_gesture),
+        counter_attack_roundstart_item,
         list_menu_item("Fast Wake Up", training_settings, "fast_wakeup_mode", fast_wakeup_mode),
       }
     },
