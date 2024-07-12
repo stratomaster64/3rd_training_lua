@@ -218,6 +218,8 @@ stick_gesture = {
   "back dash",
   "forward dash",
   "guard jump (See Readme)",
+  "Chun-Li Lightning Legs",
+  "Chun-Li EX Lightning Legs",
   --"guard back jump",
   --"guard forward jump",
   "Shun Goku Satsu", -- Gouki hidden SA1
@@ -368,6 +370,10 @@ function make_input_sequence(_stick, _button)
   elseif  _stick == "back dash" then _sequence = { { "back" }, {}, { "back" } }
     return _sequence
   elseif  _stick == "forward dash" then _sequence = { { "forward" }, {}, { "forward" } }
+    return _sequence
+  elseif _stick == "Chun-Li Lightning Legs" then _sequence = { {"LK"}, {}, {"LK"}, {}, {"LK"}, {}, {"LK"}, {}, {"LK"}}
+    return _sequence
+  elseif _stick == "Chun-Li EX Lightning Legs" then _sequence = { {"MK"}, {}, {"MK"}, {}, {"MK"}, {}, {"MK"}, {}, {"MK", "HK"}}
     return _sequence
   elseif  _stick == "Shun Goku Satsu" then _sequence = { { "LP" }, {}, {}, { "LP" }, { "forward" }, {"LK"}, {}, { "HP" } }
     return _sequence
